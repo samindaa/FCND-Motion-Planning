@@ -146,6 +146,8 @@ class PathPlanning:
 
     def a_star(self, di_graph, start, goal):
         """Modified A* to work with NetworkX DiGraphs."""
+        if start == goal:
+            return [], 0
 
         path = []
         path_cost = 0
