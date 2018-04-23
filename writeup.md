@@ -44,7 +44,10 @@ tuples, and used the A* to find a path.
     velocity of the drone is less that 1 m/s. The drone disarm, if the home and global
     height difference is less than 0.1 m and the drone is very close to ground with less 
     that 0.01 m. These are the deadbands used by the demo implementation. 
-             
+    * The following plots (using Visdom server) show the actual path taken by the drone for the demo
+    implementation for 50 meters offset.
+![NE Path](./misc/ne.png)
+![D](./misc/d.png)              
 
 ### Implementing Your Path Planning Algorithm
 
