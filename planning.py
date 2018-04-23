@@ -49,13 +49,13 @@ class PathPlanning:
     #     ntheta = theta + v * np.tan(angle) * dt
     #     return [nx, ny, ntheta]
 
-    def steer(self, x1, x2):
-        theta = x1[2]
-        angle = np.arctan2(x2[1] - x1[1], x2[0] - x1[0]) - theta
-        angle = np.arctan2(np.sin(angle), np.cos(theta))
-        # angle = np.random.normal(angle, ANGLE_STDDEV)
-        # angle = np.clip(angle, -MAX_STEERING_ANGLE, MAX_STEERING_ANGLE)
-        return angle
+    # def steer(self, x1, x2):
+    #     theta = x1[2]
+    #     angle = np.arctan2(x2[1] - x1[1], x2[0] - x1[0]) - theta
+    #     angle = np.arctan2(np.sin(angle), np.cos(theta))
+    #     # angle = np.random.normal(angle, ANGLE_STDDEV)
+    #     # angle = np.clip(angle, -MAX_STEERING_ANGLE, MAX_STEERING_ANGLE)
+    #     return angle
 
     def nearest_neighbor(self, x_rand, rrt):
         vertices = list(rrt.vertices)
@@ -68,7 +68,7 @@ class PathPlanning:
                 x_near[1] + v * np.sin(u) * dt,
                 self._sampler.zmax]
 
-    def step_from_to(self, num_extensions, x_near, x_rand, angle, v, dt):
+    def step_from_to(self, num_extensions, x_near, x_rand, x_goal, angle, v, dt):
         if self._sampler.norm(x_near, x_rand) < 2.:
             if not self.collision(x_rand):
                 return x_rand
@@ -81,6 +81,8 @@ class PathPlanning:
             if self.collision(state):
                 break
             states.append(state)
+            #if self._sampler.norm(state, x_goal) < 1.:
+            #    break
 
         if len(states) > 1:
             return [states[-1][0], states[-1][1], self._sampler.zmax]
@@ -102,8 +104,9 @@ class PathPlanning:
         x_goal_near = x_init
 
         if self._sampler.norm(x_init, x_goal) < 1.:
+            print('rrt_goal')
             rrt.add_edge(x_init, x_goal, 0)
-            return rrt
+            return rrt, x_goal, True
 
         for i in range(num_vertices):
             # print("i:{}".format(i))
@@ -119,7 +122,7 @@ class PathPlanning:
             # print("\tx_near:{}".format(x_near))
             u = self.select_input(x_rand, x_near)
             # print("\tu:{}".format(u))
-            x_new = self.step_from_to(num_extensions, x_near, x_rand, u, v, dt)
+            x_new = self.step_from_to(num_extensions, x_near, x_rand, x_goal, u, v, dt)
 
             if not x_new is None:
                 # the orientation `u` will be added as metadata to
@@ -162,7 +165,7 @@ class PathPlanning:
                 current_cost = branch[current_node][0]
 
             if current_node == goal:
-                print('Found a path.')
+                print('Found a path; current_node: {} goal: {}'.format(current_node, goal))
                 found = True
                 break
             else:
@@ -227,6 +230,10 @@ class PathPlanning:
             else:
                 i += 1
         return pruned_path
+
+    @property
+    def sampler(self):
+        return self._sampler
 
 
 def get_latlog(fname):

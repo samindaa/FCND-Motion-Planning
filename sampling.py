@@ -1,6 +1,7 @@
 import numpy as np
 from sklearn.neighbors import KDTree
 from shapely.geometry import Polygon, Point
+from udacidrone.frame_utils import local_to_global
 
 
 class Poly:
@@ -121,6 +122,11 @@ class Sampler:
         xval = np.random.uniform(self._xmin, self._xmax, 1)[0]
         yval = np.random.uniform(self._ymin, self._ymax, 1)[0]
         return [xval, yval, self._zmax]
+
+    def sample_lonlat(self, global_home):
+        tmp = self.sample()
+        lla = local_to_global([tmp[0], tmp[1], -tmp[2]], global_home)
+        return (lla[0], lla[1], self._zmax)
 
     @property
     def zmax(self):

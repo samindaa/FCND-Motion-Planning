@@ -4,7 +4,7 @@ import msgpack
 from enum import Enum, auto
 
 import numpy as np
-from planning_utils import a_star, heuristic, create_grid
+#from planning_utils import a_star, heuristic, create_grid
 from udacidrone import Drone
 from udacidrone.connection import MavlinkConnection
 from udacidrone.messaging import MsgID
@@ -15,6 +15,7 @@ import planning
 import visdom
 import sampling
 
+
 class States(Enum):
     MANUAL = auto()
     ARMING = auto()
@@ -23,6 +24,8 @@ class States(Enum):
     LANDING = auto()
     DISARMING = auto()
     PLANNING = auto()
+    RE_PLANNING = auto()
+    RE_PLANNING_SKIP = auto()
 
 
 class MotionPlanning(Drone):
@@ -51,6 +54,12 @@ class MotionPlanning(Drone):
         self.register_callback(MsgID.LOCAL_VELOCITY, self.velocity_callback)
         self.register_callback(MsgID.STATE, self.state_callback)
 
+        self.TARGET_ALTITUDE = 5
+        self.SAFETY_DISTANCE = 5
+        self.colliders_csv = 'colliders.csv'
+        self.goal_ne = None  # Goal location
+        self.path_planning = self.init_path_planning()
+
     def local_position_callback(self):
         if self.flight_state == States.TAKEOFF:
             if -1.0 * self.local_position[2] > 0.95 * self.target_position[2]:
@@ -61,7 +70,12 @@ class MotionPlanning(Drone):
                     self.waypoint_transition()
                 else:
                     if np.linalg.norm(self.local_velocity[0:2]) < 1.0:
-                        self.landing_transition()
+                        target = np.array([self.goal_ne[0], self.goal_ne[1]])
+                        if np.linalg.norm(self.local_position[0:2] - target) > 2.:
+                            print("Searching for a path ...")
+                            self.flight_state = States.RE_PLANNING
+                        else:
+                            self.landing_transition()
 
     def velocity_callback(self):
         if self.flight_state == States.LANDING:
@@ -81,6 +95,8 @@ class MotionPlanning(Drone):
             elif self.flight_state == States.DISARMING:
                 if ~self.armed & ~self.guided:
                     self.manual_transition()
+            elif self.flight_state == States.RE_PLANNING:
+                self.path_replanning()
 
     def arming_transition(self):
         self.flight_state = States.ARMING
@@ -142,14 +158,11 @@ class MotionPlanning(Drone):
     def plan_path(self):
         self.flight_state = States.PLANNING
         print("Searching for a path ...")
-        TARGET_ALTITUDE = 5
-        SAFETY_DISTANCE = 5
-        colliders_csv = 'colliders.csv'
 
-        self.target_position[2] = TARGET_ALTITUDE
+        self.target_position[2] = self.TARGET_ALTITUDE
 
         # TODO: read lat0, lon0 from colliders into floating point values
-        lat0, lon0 = planning.get_latlog(colliders_csv)
+        lat0, lon0 = planning.get_latlog(self.colliders_csv)
         print('lat0: {} lon0: {}'.format(lat0, lon0))
 
         # TODO: set home position to (lon0, lat0, 0)
@@ -181,77 +194,106 @@ class MotionPlanning(Drone):
         print('global home {0}, position {1}, local position {2}'.format(self.global_home, self.global_position,
                                                                          self.local_position))
         # Read in obstacle map
-        data = np.loadtxt('colliders.csv', delimiter=',', dtype='Float64', skiprows=2)
+        # data = np.loadtxt('colliders.csv', delimiter=',', dtype='Float64', skiprows=2)
 
         # Define a grid for a particular altitude and safety margin around obstacles
-        grid, north_offset, east_offset = create_grid(data, TARGET_ALTITUDE, SAFETY_DISTANCE)
-        print("North offset = {0}, east offset = {1}".format(north_offset, east_offset))
+        # grid, north_offset, east_offset = create_grid(data, TARGET_ALTITUDE, SAFETY_DISTANCE)
+        # print("North offset = {0}, east offset = {1}".format(north_offset, east_offset))
         # Define starting point on the grid (this is just grid center)
-        #grid_start = (-north_offset, -east_offset)
+        # grid_start = (-north_offset, -east_offset)
+
         # TODO: convert start position to current position rather than map center
-        grid_start = (int(curr_local_position[0]) - north_offset,
-                      int(curr_local_position[1]) - east_offset) # N, E (x', y')
+        start_position = (curr_local_position[0],
+                          curr_local_position[1])  # N, E (x', y')
 
         # Set goal as some arbitrary position on the grid
-        #grid_goal = (-north_offset + 10, -east_offset + 10)
+        # grid_goal = (-north_offset + 10, -east_offset + 10)
         # TODO: adapt to set goal as latitude / longitude position and convert
-        goal_lonlat = (-122.39687845, 37.79292773, TARGET_ALTITUDE) # lon, lat, alt
-        goal_ned = global_to_local(goal_lonlat, self.global_home)
-        print('goal_ned: {}'.format(goal_ned))
+        #goal_lonlat = (-122.39687845, 37.79292773, self.TARGET_ALTITUDE)  # lon, lat, alt
+        # pick random free location
+        goal_lonlat = self.path_planning.sampler.sample_lonlat(self.global_home)
+        goal_position = global_to_local(goal_lonlat, self.global_home)
+        self.goal_ne = (goal_position[0], goal_position[1])
+        print('goal_position: {}'.format(goal_position))
 
-        grid_goal = (int(goal_ned[0]) - north_offset,
-                     int(goal_ned[1]) - east_offset)
+        # TDOO: send start and goal
+        #test = [[int(start_position[0]), int(start_position[1]), self.TARGET_ALTITUDE, 0],
+        #        [int(goal_position[0]),  int(goal_position[1]), self.TARGET_ALTITUDE, 0]]
+        #self.send_waypoints(test)
 
+        # Saminda Abeyruwan implementation requires height
+        start_position = start_position + (self.TARGET_ALTITUDE,)
+        goal_position = self.goal_ne + (self.TARGET_ALTITUDE,)
 
-        # Saminda Abeyruwan implementation based on RRT
-        sampler = sampling.Sampler(data,
-                                   zmax=TARGET_ALTITUDE,
-                                   safe_distance=SAFETY_DISTANCE)
-        free_samples = sampler.samples(1000)
+        self.path_plan_block(start_position, goal_position)
 
-        print("free_space_samples: {}".format(len(free_samples)))
+    def path_plan_block(self, start_position, goal_position):
+        print('start_position: {}, goal_position: {}'.format(start_position, goal_position))
 
-        path_planning = planning.PathPlanning(sampler=sampler,
-                                              free_samples=free_samples)
-        # TODO(saminda): param?
-        dt = 0.1
-        v = 5.
-        # my implementation requires height
-        grid_start_rrt = grid_start + (TARGET_ALTITUDE,)
-        grid_goal_rrt = grid_goal + (TARGET_ALTITUDE,)
-        rrt, x_grid, x_grid_state = path_planning.generate_RRT(grid_start_rrt,
-                                                               grid_goal_rrt,
-                                                               200, 10, v, dt, 0.3)
+        rrt, x_goal, x_goal_state = self.path_planning.generate_RRT(start_position,
+                                                                    goal_position,
+                                                                    200, 10, 5., 0.1, 0.3)
         print('v: {} e: {} x: {}, x_state: {}'.format(len(rrt.vertices),
                                                       len(rrt.edges),
-                                                      x_grid, x_grid_state))
-
-        h_path, cost = path_planning.a_star(rrt.tree, grid_start_rrt, x_grid)
-        print('h_path: {} cost: {}'.format(len(h_path), cost))
-        h_path = path_planning.prune_path(h_path)
-        print('h_prune_path: {}'.format(len(h_path)))
-
-        test_waypoints = [[p[0] + north_offset, p[1] + east_offset, TARGET_ALTITUDE, 0] for p in h_path]
-        # to print
-        test_waypoints = [[int(wp[0]), int(wp[1]), wp[2], wp[3]] for wp in test_waypoints]
-        self.send_waypoints(test_waypoints)
+                                                      x_goal, x_goal_state))
 
         # Run A* to find a path from start to goal
         # TODO: add diagonal motions with a cost of sqrt(2) to your A* implementation
         # or move to a different search space such as a graph (not done here)
-        #print('Local Start and Goal: ', grid_start, grid_goal)
-        #path, _ = a_star(grid, heuristic, grid_start, grid_goal)
+        # print('Local Start and Goal: ', grid_start, grid_goal)
+        # path, _ = a_star(grid, heuristic, grid_start, grid_goal)
+        path, cost = self.path_planning.a_star(rrt.tree, start_position, x_goal)
+        print('path: {} cost: {}'.format(len(path), cost))
+
         # TODO: prune path to minimize number of waypoints
         # TODO (if you're feeling ambitious): Try a different approach altogether!
+        path = self.path_planning.prune_path(path)
+        print('prune_path: {}'.format(len(path)))
+
+        waypoints = [[p[0], p[1], self.TARGET_ALTITUDE, 0] for p in path]
+        # printing needs int looks like
+        print_waypoints = [[int(wp[0]), int(wp[1]), wp[2], wp[3]] for wp in waypoints]
 
         # Convert path to waypoints
-        ## todo:
-        waypoints = []
-        #waypoints = [[p[0] + north_offset, p[1] + east_offset, TARGET_ALTITUDE, 0] for p in path]
+        # waypoints = [[p[0] + north_offset, p[1] + east_offset, TARGET_ALTITUDE, 0] for p in path]
         # Set self.waypoints
         self.waypoints = waypoints
         # TODO: send waypoints to sim (this is just for visualization of waypoints)
-        #self.send_waypoints(self.waypoints)
+        self.send_waypoints(print_waypoints)
+
+    def path_replanning(self):
+        if self.flight_state == States.RE_PLANNING_SKIP:
+            return
+
+        self.flight_state = States.RE_PLANNING_SKIP
+        print("Path replanning ...")
+        curr_local_position = global_to_local(self.global_position, self.global_home)
+        print('curr_local_position: {}'.format(curr_local_position))  # [north, east, down]
+        print('goal_ne: {}'.format(self.goal_ne))
+
+        start_position = (curr_local_position[0],
+                          curr_local_position[1],
+                          self.TARGET_ALTITUDE)  # N, E (x', y')
+        goal_position = self.goal_ne + (self.TARGET_ALTITUDE,)
+        self.path_plan_block(start_position, goal_position)
+        self.waypoint_transition()
+
+    def init_path_planning(self):
+        # Read in obstacle map
+        data = np.loadtxt(self.colliders_csv, delimiter=',', dtype='Float64', skiprows=2)
+
+        # Define a grid for a particular altitude and safety margin around obstacles
+        sampler = sampling.Sampler(data,
+                                   zmax=self.TARGET_ALTITUDE,
+                                   safe_distance=self.SAFETY_DISTANCE)
+        free_samples = sampler.samples(1000)
+
+        print("North offset = {0}, east offset = {1}".format(sampler.nmin, sampler.emin))
+        print("free_space_samples: {}".format(len(free_samples)))
+
+        path_planning = planning.PathPlanning(sampler=sampler,
+                                              free_samples=free_samples)
+        return path_planning
 
     def start(self):
         self.start_log("Logs", "NavLog.txt")
