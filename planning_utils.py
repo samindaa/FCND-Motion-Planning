@@ -1,6 +1,7 @@
 from enum import Enum
 from queue import PriorityQueue
 import numpy as np
+from udacidrone.frame_utils import local_to_global
 
 
 def create_grid(data, drone_altitude, safety_distance):
@@ -51,10 +52,14 @@ class Action(Enum):
     is the cost of performing the action.
     """
 
-    WEST = (0, -1, 1)
-    EAST = (0, 1, 1)
-    NORTH = (-1, 0, 1)
-    SOUTH = (1, 0, 1)
+    WEST    = (0, -1, 1.0)
+    EAST    = (0, 1, 1.0)
+    NORTH   = (-1, 0, 1.0)
+    SOUTH   = (1, 0, 1.0)
+    DIAG_Q1 = (1, 1, np.sqrt(2))
+    DIAG_Q2 = (-1, 1, np.sqrt(2))
+    DIAG_Q3 = (-1, -1, np.sqrt(2))
+    DIAG_Q4 = (1, -1, np.sqrt(2))
 
     @property
     def cost(self):
@@ -75,15 +80,21 @@ def valid_actions(grid, current_node):
 
     # check if the node is off the grid or
     # it's an obstacle
+    for action in valid_actions:
+        i, j  = x + action[0], y + action[1]
+        if 0 <= i < grid.shape[0] and 0 <= j < grid.shape[1] and grid[i,j] == 0:
+            continue
+        valid_actions.remove(action)
 
-    if x - 1 < 0 or grid[x - 1, y] == 1:
-        valid_actions.remove(Action.NORTH)
-    if x + 1 > n or grid[x + 1, y] == 1:
-        valid_actions.remove(Action.SOUTH)
-    if y - 1 < 0 or grid[x, y - 1] == 1:
-        valid_actions.remove(Action.WEST)
-    if y + 1 > m or grid[x, y + 1] == 1:
-        valid_actions.remove(Action.EAST)
+
+    #if x - 1 < 0 or grid[x - 1, y] == 1:
+    #    valid_actions.remove(Action.NORTH)
+    #if x + 1 > n or grid[x + 1, y] == 1:
+    #    valid_actions.remove(Action.SOUTH)
+    #if y - 1 < 0 or grid[x, y - 1] == 1:
+    #    valid_actions.remove(Action.WEST)
+    #if y + 1 > m or grid[x, y + 1] == 1:
+    #    valid_actions.remove(Action.EAST)
 
     return valid_actions
 
@@ -156,5 +167,51 @@ def get_latlog(fname):
     matches = re.match(r'lat0 (.*), lon0 (.*)', line)
     assert matches
     return float(matches.group(1)), float(matches.group(2))  # Lat, Lon
+
+
+def random_location_in_free_space(grid, north_offset, east_offset, altitude, global_home):
+    while True:
+        i, j = np.random.randinit(grid.shape[0], size=1)[0], np.random.randinit(grid.shape[1], size=1)[0]
+        if grid[i,j] == 0:
+            tmp = (i + north_offset, j + east_offset)
+            lla = local_to_global([tmp[0], tmp[1], -altitude], global_home)
+            return (lla[0], lla[1], altitude)
+
+def collinearity_check(self, p1, p2, p3, epsilon=1e-6):
+    m = np.concatenate((p1, p2, p3), 0)
+    det = np.linalg.det(m)
+    return abs(det) < epsilon
+
+def prune_path(self, path):
+    """
+    Prune the given path. Based on the class material.
+
+    :param path tuples in grid coordinates:
+    :return pruned path:
+    """
+    point = lambda p : np.array([p[0], p[1], 1.]).reshape(1, -1)
+
+    pruned_path = [p for p in path]
+
+    i = 0
+    while i < len(pruned_path) - 2:
+        p1 = point(pruned_path[i])
+        p2 = point(pruned_path[i + 1])
+        p3 = point(pruned_path[i + 2])
+
+        # If the 3 points are in a line remove
+        # the 2nd point.
+        # The 3rd point now becomes and 2nd point
+        # and the check is redone with a new third point
+        # on the next iteration.
+        if collinearity_check(p1, p2, p3):
+            # Something subtle here but we can mutate
+            # `pruned_path` freely because the length
+            # of the list is check on every iteration.
+            pruned_path.remove(pruned_path[i + 1])
+        else:
+            i += 1
+    return pruned_path               
+
 
 
