@@ -5,6 +5,7 @@ import numpy as np
 import networkx as nx
 from sklearn.neighbors import KDTree
 from queue import PriorityQueue
+from shapely.geometry import LineString
 
 
 class RRT:
@@ -33,6 +34,7 @@ class PathPlanning:
     def __init__(self, sampler, free_samples):
         self._sampler = sampler
         self._free_samples = free_samples
+        self._free_samples_tree = KDTree([[s[0], s[1]] for s in self._free_samples], metric='euclidean')
 
     def select_input(self, x_rand, x_near):
         x = x_rand[0] - x_near[0]
@@ -69,7 +71,7 @@ class PathPlanning:
                 self._sampler.zmax]
 
     def step_from_to(self, num_extensions, x_near, x_rand, x_goal, angle, v, dt):
-        if self._sampler.norm(x_near, x_rand) < 2.:
+        if self._sampler.norm(x_near, x_rand) < 1.:
             if not self.collision(x_rand):
                 return x_rand
             else:
@@ -81,8 +83,8 @@ class PathPlanning:
             if self.collision(state):
                 break
             states.append(state)
-            #if self._sampler.norm(state, x_goal) < 1.:
-            #    break
+            if self._sampler.norm(state, x_goal) < 1.:
+                break
 
         if len(states) > 1:
             return [states[-1][0], states[-1][1], self._sampler.zmax]
@@ -91,11 +93,12 @@ class PathPlanning:
 
     def collision(self, s):
         in_collision = False
-        idxs = self._sampler.tree.query([[s[0], s[1]]], return_distance=False)[0]
-        if len(idxs) > 0:
-            p = self._sampler.polygons[idxs[0]]
+        idxs = self._sampler.tree.query([[s[0], s[1]]], k=3, return_distance=False)[0]
+        for idx in idxs:
+            p = self._sampler.polygons[idx]
             if p.contains(s) and p.height >= s[2]:
                 in_collision = True
+                break
         return in_collision
 
     def generate_RRT(self, x_init, x_goal, num_vertices, num_extensions, v, dt, epsilon=0.1):
@@ -135,7 +138,7 @@ class PathPlanning:
 
             x_goal_near = self.nearest_neighbor(x_goal, rrt)
             # if there is a node in node close to goal, stop searching
-            if self._sampler.norm(x_goal_near, x_goal) < 2.:
+            if self._sampler.norm(x_goal_near, x_goal) < 1.:
                 rrt.add_edge(x_goal_near, x_goal, 0)
                 return rrt, x_goal, True
 
@@ -233,9 +236,49 @@ class PathPlanning:
                 i += 1
         return pruned_path
 
+    def can_connect(self, p1, p2):
+        ne = lambda x: [x[0], x[1]]
+        l = LineString([ne(p1), ne(p2)])
+        p_mid = [(p1[0] + p2[0]) / 2.0, (p1[1] + p2[1]) / 2.0]
+
+        idxs = self._sampler.tree.query([p_mid], k=2, return_distance=False)[0]
+        for idx in idxs:
+            p = self._sampler.polygons[idx]
+            if p.crosses(l) and p.height > min(p1[2], p2[2]):
+                return False
+        return True
+
+    def smooth_path(self, path):
+        """
+        Smooth path for RRT path.
+
+        :param path tuples in grid coordinates:
+        :return smooth path:
+        """
+        smooth_path = [p for p in path]
+
+        i = 0
+        while i < len(smooth_path) - 2:
+            p1 = smooth_path[i]
+            p3 = smooth_path[i + 2]
+
+            if self.can_connect(p1, p3):
+                smooth_path.remove(smooth_path[i + 1])
+            else:
+                i += 1
+        return smooth_path
+
     @property
     def sampler(self):
         return self._sampler
+
+    @property
+    def free_samples_tree(self):
+        return self._free_samples_tree
+
+    @property
+    def free_samples(self):
+        return self._free_samples
 
 
 def get_latlog(fname):

@@ -36,7 +36,7 @@ class Poly:
 
 class Sampler:
 
-    def __init__(self, data, zmax=10, safe_distance=0):
+    def __init__(self, data, zmax=10, safe_distance=5):
         self._polygons = self.extract_polygons(data, safe_distance)
         self._xmin = np.min(data[:, 0] - data[:, 3])
         self._xmax = np.max(data[:, 0] + data[:, 3])
@@ -51,7 +51,7 @@ class Sampler:
         # multiply by 2 since given sizes are half widths
         # This is still rather clunky but will allow us to 
         # cut down the number of polygons we compare with by a lot.
-        self._max_poly_xy = 2 * np.max((data[:, 3], data[:, 4]))
+        #self._max_poly_xy = 2 * np.max((data[:, 3], data[:, 4]))
         centers = np.array([p.center for p in self._polygons])
         self._tree = KDTree(centers, metric='euclidean')
 
@@ -69,7 +69,7 @@ class Sampler:
                        (obstacle[1], obstacle[2])]
 
             # TODO: Compute the height of the polygon
-            height = alt + d_alt
+            height = alt + d_alt + safe_distance
 
             p = Poly(corners, height)
             polygons.append(p)

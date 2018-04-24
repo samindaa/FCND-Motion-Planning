@@ -39,7 +39,7 @@ class MotionPlanning(Drone):
         self.check_state = {}
         # plotting
         self.v = visdom.Visdom()
-        assert self.v.check_connection()
+        #assert self.v.check_connection()
         self.v_t = 0
         self.v_ne_plot = None
         self.v_d_plot = None
@@ -142,14 +142,14 @@ class MotionPlanning(Drone):
 
     # plot helpers
     def update_ne_plot(self):
-        if self.v_ne_plot is not None:
+        if self.v_ne_plot is not None and self.v.check_connection():
             curr_local_position = global_to_local(self.global_position, self.global_home)
             self.v.line(np.array([curr_local_position[0]]),
                         X=np.array([curr_local_position[1]]),
                         win=self.v_ne_plot, update='append')
 
     def update_d_plot(self):
-        if self.v_d_plot is not None:
+        if self.v_d_plot is not None and self.v.check_connection():
             curr_local_position = global_to_local(self.global_position, self.global_home)
             d = np.array([curr_local_position[2]])
             self.v_t += 1
@@ -175,22 +175,24 @@ class MotionPlanning(Drone):
         curr_local_position = global_to_local(curr_global_position, self.global_home)
         print('curr_local_position: {}'.format(curr_local_position))  # [north, east, down]
 
-        # Plot D
-        self.v_ne_plot = self.v.line(np.array([curr_local_position[0]]),
-                                     X=np.array([curr_local_position[1]]),
-                                     opts=dict(
-                                         title="Local position (north, east)",
-                                         xlabel='North',
-                                         ylabel='East'
-                                     ))
-        self.v_t = 0
-        self.v_d_plot = self.v.line(np.array([curr_local_position[2]]),
-                                    X=np.array([self.v_t]),
-                                    opts=dict(
-                                        title="Altitude (meters)",
-                                        xlabel='Timestep',
-                                        ylabel='Down'
-                                    ))
+        if self.v.check_connection():
+            # Plot D
+            self.v_ne_plot = self.v.line(np.array([curr_local_position[0]]),
+                                         X=np.array([curr_local_position[1]]),
+                                         opts=dict(
+                                             title="Local position (north, east)",
+                                             xlabel='North',
+                                             ylabel='East'
+                                         ))
+        if self.v.check_connection():
+            self.v_t = 0
+            self.v_d_plot = self.v.line(np.array([curr_local_position[2]]),
+                                        X=np.array([self.v_t]),
+                                        opts=dict(
+                                            title="Altitude (meters)",
+                                            xlabel='Timestep',
+                                            ylabel='Down'
+                                        ))
         print('global home {0}, position {1}, local position {2}'.format(self.global_home, self.global_position,
                                                                          self.local_position))
         # Read in obstacle map
@@ -232,11 +234,10 @@ class MotionPlanning(Drone):
 
         rrt, x_goal, x_goal_state = self.path_planning.generate_RRT(start_position,
                                                                     goal_position,
-                                                                    200, 10, 5., 0.1, 0.3)
+                                                                    200, 20, 5., 0.1, 0.2)
         print('v: {} e: {} x: {}, x_state: {}'.format(len(rrt.vertices),
                                                       len(rrt.edges),
                                                       x_goal, x_goal_state))
-
         # Run A* to find a path from start to goal
         # TODO: add diagonal motions with a cost of sqrt(2) to your A* implementation
         # or move to a different search space such as a graph (not done here)
@@ -249,6 +250,19 @@ class MotionPlanning(Drone):
         # TODO (if you're feeling ambitious): Try a different approach altogether!
         path = self.path_planning.prune_path(path)
         print('prune_path: {}'.format(len(path)))
+        # todo smooth path
+        path = self.path_planning.smooth_path(path)
+        print('smooth_path: {}'.format(len(path)))
+
+        if len(rrt.edges) == 0:
+            # because of the thresholds robot is stuck
+            # find the random point close to the current pos in free space and escape.
+            idxs = self.path_planning.free_samples_tree.query([[start_position[0], start_position[1]]], k=1,
+                                                              return_distance=False)[0]
+            pos = self.path_planning.free_samples[idxs[0]]
+            path.append(start_position)
+            path.append((pos[0], pos[1], self.TARGET_ALTITUDE))
+            print('force escaping: {}'.format(path))
 
         waypoints = [[p[0], p[1], self.TARGET_ALTITUDE, 0] for p in path]
         # printing needs int looks like
@@ -286,7 +300,7 @@ class MotionPlanning(Drone):
         sampler = sampling.Sampler(data,
                                    zmax=self.TARGET_ALTITUDE,
                                    safe_distance=self.SAFETY_DISTANCE)
-        free_samples = sampler.samples(1000)
+        free_samples = sampler.samples(10000)
 
         print("North offset = {0}, east offset = {1}".format(sampler.nmin, sampler.emin))
         print("free_space_samples: {}".format(len(free_samples)))
