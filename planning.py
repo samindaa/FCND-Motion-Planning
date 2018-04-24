@@ -279,16 +279,3 @@ class PathPlanning:
     @property
     def free_samples(self):
         return self._free_samples
-
-
-def get_latlog(fname):
-    """
-    Read fname to extract lat and log of the map.
-    :param fname:
-    :return: lat 0 and lon0
-    """
-    with open(fname) as f:
-        line = f.readline()
-    matches = re.match(r'lat0 (.*), lon0 (.*)', line)
-    assert matches
-    return float(matches.group(1)), float(matches.group(2))  # Lat, Lon
