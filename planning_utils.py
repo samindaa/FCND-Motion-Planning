@@ -177,12 +177,12 @@ def random_location_in_free_space(grid, north_offset, east_offset, altitude, glo
             lla = local_to_global([tmp[0], tmp[1], -altitude], global_home)
             return (lla[0], lla[1], altitude)
 
-def collinearity_check(self, p1, p2, p3, epsilon=1e-6):
+def collinearity_check(p1, p2, p3, epsilon=1e-6):
     m = np.concatenate((p1, p2, p3), 0)
     det = np.linalg.det(m)
     return abs(det) < epsilon
 
-def prune_path(self, path):
+def prune_path(path):
     """
     Prune the given path. Based on the class material.
 
@@ -211,7 +211,85 @@ def prune_path(self, path):
             pruned_path.remove(pruned_path[i + 1])
         else:
             i += 1
-    return pruned_path               
+    return pruned_path
+
+def can_connect_segment(grid, start, end):
+    """
+    Calculate line segment connecting p1 and p2 in the free space.
+    Based on: http://www.roguebasin.com/index.php?title=Bresenham%27s_Line_Algorithm#Python
+    """
+    # Setup initial conditions
+    x1, y1 = start
+    x2, y2 = end
+    dx = x2 - x1
+    dy = y2 - y1
+ 
+    # Determine how steep the line is
+    is_steep = abs(dy) > abs(dx)
+ 
+    # Rotate line
+    if is_steep:
+        x1, y1 = y1, x1
+        x2, y2 = y2, x2
+ 
+    # Swap start and end points if necessary and store swap state
+    swapped = False
+    if x1 > x2:
+        x1, x2 = x2, x1
+        y1, y2 = y2, y1
+        swapped = True
+ 
+    # Recalculate differentials
+    dx = x2 - x1
+    dy = y2 - y1
+ 
+    # Calculate error
+    error = int(dx / 2.0)
+    ystep = 1 if y1 < y2 else -1
+ 
+    # Iterate over bounding box generating points between start and end
+    y = y1
+    #points = []
+    for x in range(x1, x2 + 1):
+        coord = (y, x) if is_steep else (x, y)
+        # TODO(saminda)
+        if grid[coord[0], coord[1]] == 1:
+            return False
+        #points.append(coord)
+        error -= abs(dy)
+        if error < 0:
+            y += ystep
+            error += dx
+ 
+    # Reverse the list if the coordinates were swapped
+    #if swapped:
+    #    points.reverse()
+    #return points
+
+    return True
+
+def smooth_path(grid, path):
+    """
+    Based on: Motion Planning using Adaptive Random Walks
+    """
+    if (len(path) < 1):
+        return path
+
+    smothed_path = []
+    smooth_path_recursvie(grid, path, smothed_path, 0, len(path) - 1)
+    return smothed_path
 
 
-
+def smooth_path_recursvie(grid, path, s, first, last):
+    if first == last:
+        s.append(path[first])
+    else if first == last - 1:
+        s.append(path[first])    
+        s.append(path[last])
+    else if can_connect_segment(grid, path[first], path[last]): 
+        s.append(path[first])    
+        s.append(path[last])
+    else:
+        mid = first + ((last - first) >> 1)
+        smooth_path_recursvie(grid, path, s, first, mid)
+        smooth_path_recursvie(grid, path, s, mid + 1, last)    
