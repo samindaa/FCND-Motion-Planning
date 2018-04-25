@@ -5,7 +5,7 @@ from enum import Enum, auto
 
 import numpy as np
 
-from planning_utils import a_star, heuristic, create_grid, get_latlog
+from planning_utils import a_star, heuristic, create_grid, get_latlog, random_free_location_lla
 from udacidrone import Drone
 from udacidrone.connection import MavlinkConnection
 from udacidrone.messaging import MsgID
@@ -142,20 +142,30 @@ class MotionPlanning(Drone):
         grid, north_offset, east_offset = create_grid(data, TARGET_ALTITUDE, SAFETY_DISTANCE)
         print("North offset = {0}, east offset = {1}".format(north_offset, east_offset))
         # Define starting point on the grid (this is just grid center)
-        grid_start = (-north_offset, -east_offset)
+        #grid_start = (-north_offset, -east_offset)
         # TODO: convert start position to current position rather than map center
+        grid_start = (int(curr_local_position[0]) - north_offset, 
+                      int(curr_local_position[1]) - east_offset)
         
         # Set goal as some arbitrary position on the grid
-        grid_goal = (-north_offset + 10, -east_offset + 10)
+        #grid_goal = (-north_offset + 10, -east_offset + 10)
         # TODO: adapt to set goal as latitude / longitude position and convert
+        # Pick a point in C_free in the grid
+        sample_lla = random_free_location_lla(grid, north_offset, east_offset, TARGET_ALTITUDE, self.global_home)
+        goal_position = global_to_local(sample_lla, self.global_home)
+        grid_goal = (int(goal_position[0]) - north_offset, 
+                     int(goal_position[1]) - east_offset)  
 
         # Run A* to find a path from start to goal
         # TODO: add diagonal motions with a cost of sqrt(2) to your A* implementation
         # or move to a different search space such as a graph (not done here)
         print('Local Start and Goal: ', grid_start, grid_goal)
-        path, _ = a_star(grid, heuristic, grid_start, grid_goal)
+        path, path_cost = a_star(grid, heuristic, grid_start, grid_goal)
         # TODO: prune path to minimize number of waypoints
         # TODO (if you're feeling ambitious): Try a different approach altogether!
+        print('path: {} path_cost: {}'.format(len(path), path_cost))
+        path = planning_utils.smooth_path(grid, path)
+        print("smoothed_path: {}".format(len(path)))
 
         # Convert path to waypoints
         waypoints = [[p[0] + north_offset, p[1] + east_offset, TARGET_ALTITUDE, 0] for p in path]

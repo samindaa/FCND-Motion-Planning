@@ -1,5 +1,6 @@
 from enum import Enum
 from queue import PriorityQueue
+#from Queue import PriorityQueue
 import numpy as np
 from udacidrone.frame_utils import local_to_global
 
@@ -54,12 +55,13 @@ class Action(Enum):
 
     WEST    = (0, -1, 1.0)
     EAST    = (0, 1, 1.0)
-    NORTH   = (-1, 0, 1.0)
-    SOUTH   = (1, 0, 1.0)
-    DIAG_Q1 = (1, 1, np.sqrt(2))
-    DIAG_Q2 = (-1, 1, np.sqrt(2))
-    DIAG_Q3 = (-1, -1, np.sqrt(2))
-    DIAG_Q4 = (1, -1, np.sqrt(2))
+    NORTH   = (1, 0, 1.0)
+    SOUTH   = (-1, 0, 1.0)
+    # Four diagonal directions
+    NORTH_EAST = (1, 1, np.sqrt(2))
+    NORTH_WEST = (1, -1, np.sqrt(2))
+    SOUTH_WEST = (-1, -1, np.sqrt(2))
+    SOUTH_EAST = (-1, 1, np.sqrt(2))
 
     @property
     def cost(self):
@@ -74,27 +76,16 @@ def valid_actions(grid, current_node):
     """
     Returns a list of valid actions given a grid and current node.
     """
-    valid_actions = list(Action)
+    valid_actions = []
     n, m = grid.shape[0] - 1, grid.shape[1] - 1
     x, y = current_node
 
     # check if the node is off the grid or
     # it's an obstacle
-    for action in valid_actions:
-        i, j  = x + action[0], y + action[1]
+    for action in list(Action):
+        i, j  = x + action.delta[0], y + action.delta[1]
         if 0 <= i < grid.shape[0] and 0 <= j < grid.shape[1] and grid[i,j] == 0:
-            continue
-        valid_actions.remove(action)
-
-
-    #if x - 1 < 0 or grid[x - 1, y] == 1:
-    #    valid_actions.remove(Action.NORTH)
-    #if x + 1 > n or grid[x + 1, y] == 1:
-    #    valid_actions.remove(Action.SOUTH)
-    #if y - 1 < 0 or grid[x, y - 1] == 1:
-    #    valid_actions.remove(Action.WEST)
-    #if y + 1 > m or grid[x, y + 1] == 1:
-    #    valid_actions.remove(Action.EAST)
+            valid_actions.append(action)
 
     return valid_actions
 
@@ -169,13 +160,18 @@ def get_latlog(fname):
     return float(matches.group(1)), float(matches.group(2))  # Lat, Lon
 
 
-def random_location_in_free_space(grid, north_offset, east_offset, altitude, global_home):
+def random_free_location_in_grid(grid):
     while True:
-        i, j = np.random.randinit(grid.shape[0], size=1)[0], np.random.randinit(grid.shape[1], size=1)[0]
+        i, j = np.random.randint(grid.shape[0], size=1)[0], np.random.randint(grid.shape[1], size=1)[0]
         if grid[i,j] == 0:
-            tmp = (i + north_offset, j + east_offset)
-            lla = local_to_global([tmp[0], tmp[1], -altitude], global_home)
-            return (lla[0], lla[1], altitude)
+            return (i, j)
+
+
+def random_free_location_lla(grid, north_offset, east_offset, altitude, global_home):
+    i, j = random_free_location_in_grid(grid)
+    tmp = (i + north_offset, j + east_offset)
+    lla = local_to_global([tmp[0], tmp[1], -altitude], global_home)
+    return (lla[0], lla[1], altitude)
 
 def collinearity_check(p1, p2, p3, epsilon=1e-6):
     m = np.concatenate((p1, p2, p3), 0)
@@ -265,31 +261,21 @@ def can_connect_segment(grid, start, end):
     #if swapped:
     #    points.reverse()
     #return points
-
     return True
 
 def smooth_path(grid, path):
     """
-    Based on: Motion Planning using Adaptive Random Walks
+    Get a potential smooth path
     """
-    if (len(path) < 1):
-        return path
+    smoothed_path = [p for p in path]
 
-    smothed_path = []
-    smooth_path_recursvie(grid, path, smothed_path, 0, len(path) - 1)
-    return smothed_path
+    i = 0
+    while i < len(smoothed_path) - 2:
+        p1 = smoothed_path[i]
+        p3 = smoothed_path[i + 2]
 
-
-def smooth_path_recursvie(grid, path, s, first, last):
-    if first == last:
-        s.append(path[first])
-    else if first == last - 1:
-        s.append(path[first])    
-        s.append(path[last])
-    else if can_connect_segment(grid, path[first], path[last]): 
-        s.append(path[first])    
-        s.append(path[last])
-    else:
-        mid = first + ((last - first) >> 1)
-        smooth_path_recursvie(grid, path, s, first, mid)
-        smooth_path_recursvie(grid, path, s, mid + 1, last)    
+        if can_connect_segment(grid, p1, p3):
+            smoothed_path.remove(smoothed_path[i + 1])
+        else:
+            i += 1
+    return smoothed_path
