@@ -51,14 +51,93 @@ tuples, and used the A* to find a path.
 
 ### Implementing Your Path Planning Algorithm
 
-TODO(saminda)
-a_star = 677, divide and concur with Bresenham smoothing = 70, greedy smoothing = 12 
+I have implemented the required flying specification in the _motion_planning.py_ and _planning_utils.py_ files. 
+
+#### 1. Set your global home position
+_get_latlog_ reads the latitude and longitude.  
+
+#### 2. Set your current local position
+_curr_local_position_ has been calculated from _global_to_local(curr_global_position, self.global_home)_.
+
+#### 3. Set grid start position from local position
+_grid_start_ has been calculated from the appropriate offsets. The drone can start from
+any free position in the grid and the _grid_start_ correctly reflects that position. 
+
+#### 4. Set grid goal position from geodetic coords
+
+Random geodetic coords have been sampled from the free space and converted to 
+the _grid_goal_.
+
+#### 5. Modify A* to include diagonal motion (or replace A* altogether)
+
+I have add the diagonal actions:
+* NORTH_EAST = (1, 1, np.sqrt(2))
+* NORTH_WEST = (1, -1, np.sqrt(2))
+* SOUTH_WEST = (-1, -1, np.sqrt(2))
+* SOUTH_EAST = (-1, 1, np.sqrt(2))
+
+#### 6. Cull waypoints 
+
+After a path has been found from A* (if we sample coords from a hole inside a building, 
+a path cannot be found), I have used two methods to smooth the paths:
+
+* divide and concur with Bresenham smoothing: in this method, I have implemented the
+_SMOOTH_ algorithm given in _Motion planning using adaptive random walks_. This is a 
+divide and concur method, which prune the original path considerably. 
+
+* Greedy smoothing: I have implemented my own greedy smoothing method. In this 
+method, I have used the path order to prune nodes. The algorithm is:
+
+```python
+def greedy_smooth_path(grid, path, k=5):
+    if len(path) < 3:
+        return path
+
+    pruned_path = []
+    i = 0
+    while i < len(path) - 1:
+        pruned_path.append(path[i])
+        j = i + 1
+        ii = -1
+        while j < min(j + k, len(path) - 1):
+            if can_connect_segment(grid, path[i], path[j]):
+                ii = j
+            j += 1
+        if ii != -1:
+            i = ii
+        else:
+            i += 1
+    pruned_path.append(path[-1])
+    return pruned_path
+
+```
+
+From a given position, i, we look forward to j in [i + 1, min(i + 1 + k, len(path) - 1)) nodes, and 
+if the line segment between path[i], path[j] connects (using Bresenham), we prune all
+the nodes in [i + 1, j). This method further prune the path. As an example, I have randomly
+sample start and goal position from the environment and generated a path and calculated
+the number of edges in the path:
+
+* Red cross: start
+* Green corss: goal,
+* Blue path: A* path,
+* Green path: divide and concur with Bresenham smoothing, and
+* Red path: final path after greedy smoothing.   
+
+E.g., (1):
+
+
+a_star = 677, divide and concur with Bresenham smoothing = 70, and greedy smoothing = 12 
 ![NE Path](./misc/path1.png)
 
-a_star = 1295, divide and concur with Bresenham smoothing = 186, greedy smoothing = 23 
+E.g., (2): 
+a_star = 1295, divide and concur with Bresenham smoothing = 186, and greedy smoothing = 23 
 
 ![NE Path](./misc/path2.png)
 
-### Execute the flight
 
-TODO(saminda)
+### Execute the flight
+#### 1. Does it work?
+It works! The method calculate the path during the _armed_ state. Once the a path is 
+found, we convert it to waypoints and send to the drone. Once the path has been
+completed, the drone is disarmed. 
