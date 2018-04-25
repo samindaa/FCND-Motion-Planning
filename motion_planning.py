@@ -154,7 +154,8 @@ class MotionPlanning(Drone):
         sample_lla = random_free_location_lla(grid, north_offset, east_offset, TARGET_ALTITUDE, self.global_home)
         goal_position = global_to_local(sample_lla, self.global_home)
         grid_goal = (int(goal_position[0]) - north_offset, 
-                     int(goal_position[1]) - east_offset)  
+                     int(goal_position[1]) - east_offset)
+        print('grid_start: {} grid_goal: {}'.format(grid_start, grid_goal))               
 
         # Run A* to find a path from start to goal
         # TODO: add diagonal motions with a cost of sqrt(2) to your A* implementation
