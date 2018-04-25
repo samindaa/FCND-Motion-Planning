@@ -52,6 +52,12 @@ tuples, and used the A* to find a path.
 ### Implementing Your Path Planning Algorithm
 
 TODO(saminda)
+a_star = 677, divide and concur with Bresenham smoothing = 70, greedy smoothing = 12 
+![NE Path](./misc/path1.png)
+
+a_star = 1295, divide and concur with Bresenham smoothing = 186, greedy smoothing = 23 
+
+![NE Path](./misc/path2.png)
 
 ### Execute the flight
 
