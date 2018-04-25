@@ -138,6 +138,6 @@ a_star = 1295, divide and concur with Bresenham smoothing = 186, and greedy smoo
 
 ### Execute the flight
 #### 1. Does it work?
-It works! The method calculate the path during the _armed_ state. Once the a path is 
+It works! Our methods calculate the path during the _armed_ state. Once a path has been 
 found, we convert it to waypoints and send to the drone. Once the path has been
 completed, the drone is disarmed. 
