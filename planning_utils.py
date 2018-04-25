@@ -266,17 +266,24 @@ def can_connect_segment(grid, start, end):
 
 def smooth_path(grid, path):
     """
-    Get a potential smooth path
+    Get smooth path. We are using an divide and conqur algorithm
+    Motion Planning using Adaptive Random Walks
     """
-    smoothed_path = [p for p in path]
-
-    i = 0
-    while i < len(smoothed_path) - 2:
-        p1 = smoothed_path[i]
-        p3 = smoothed_path[i + 2]
-
-        if can_connect_segment(grid, p1, p3):
-            smoothed_path.remove(smoothed_path[i + 1])
-        else:
-            i += 1
+    smoothed_path = []
+    smooth_path_dq(grid, path, 0, len(path) - 1, smoothed_path)
     return smoothed_path
+
+
+def smooth_path_dq(grid, path, first, last, S):
+    if first == last:
+        S.append(path[first])
+    elif first == last - 1:
+        S.append(path[first])
+        S.append(path[last])
+    elif can_connect_segment(grid, path[first], path[last]):
+        S.append(path[first])
+        S.append(path[last])
+    else:
+        mid = (first + last) // 2
+        smooth_path_dq(grid, path, first, mid, S)
+        smooth_path_dq(grid, path, mid + 1, last, S)            
