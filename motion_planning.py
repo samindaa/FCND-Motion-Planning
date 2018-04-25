@@ -5,7 +5,7 @@ from enum import Enum, auto
 
 import numpy as np
 
-from planning_utils import a_star, heuristic, create_grid, get_latlog, random_free_location_lla
+from planning_utils import a_star, heuristic, create_grid, get_latlog, random_free_location_lla, smooth_path
 from udacidrone import Drone
 from udacidrone.connection import MavlinkConnection
 from udacidrone.messaging import MsgID
@@ -165,7 +165,7 @@ class MotionPlanning(Drone):
         # TODO: prune path to minimize number of waypoints
         # TODO (if you're feeling ambitious): Try a different approach altogether!
         print('path: {} path_cost: {}'.format(len(path), path_cost))
-        path = planning_utils.smooth_path(grid, path)
+        path = smooth_path(grid, path)
         print("smoothed_path: {}".format(len(path)))
 
         # Convert path to waypoints
